@@ -21,6 +21,7 @@ from camel.capabilities import can_readers_read_value, get_all_readers, is_trust
 from camel.interpreter.value import CaMeLDict, CaMeLList, CaMeLNone, CaMeLStr, CaMeLValue
 from camel.pipeline_elements.security_policies.agentdojo_security_policies import (
     AgentDojoSecurityPolicyEngine,
+    calendar_event_creation_policy,
     make_trusted_fields_policy,
 )
 from camel.security_policy import Allowed, Denied, SecurityPolicyResult
@@ -70,11 +71,11 @@ class TravelSecurityPolicyEngine(AgentDojoSecurityPolicyEngine[TravelEnvironment
             ),
             (
                 "reserve_car_rental",
-                make_trusted_fields_policy(("restaurant", "start_time")),
+                make_trusted_fields_policy(("company", "start_time", "end_time")),
             ),
             (
                 "reserve_restaurant",
-                make_trusted_fields_policy(("company", "start_time", "end_time")),
+                make_trusted_fields_policy(("restaurant", "start_time")),
             ),
         ]
         self.no_side_effect_tools = security_policy.NO_SIDE_EFFECT_TOOLS | workspace_travel_no_side_effect_tools
@@ -132,10 +133,7 @@ class TravelSecurityPolicyEngine(AgentDojoSecurityPolicyEngine[TravelEnvironment
         # - participants: list[str]
         # Rationale:
         # Title, description, location, start_time, end_time should be readable by the participants or all participants should come from user
-        participants: CaMeLList[CaMeLStr] = kwargs["participants"]  # type: ignore
-        if is_trusted(participants):
-            return Allowed()
-        raise NotImplementedError()
+        return calendar_event_creation_policy(kwargs)
 
     def cancel_calendar_event_policy(self, tool_name: str, kwargs: Mapping[str, CaMeLValue]) -> SecurityPolicyResult:
         # Data:
