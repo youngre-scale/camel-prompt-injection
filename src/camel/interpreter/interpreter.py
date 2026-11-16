@@ -310,8 +310,8 @@ def _eval_joined_str(
     string = value.CaMeLStr.from_raw("", Capabilities.camel(), ())
 
     for d in evaled_data.iterate_python():
-        string._python_value = (*string._python_value, *d.string()._python_value)
-        # string = string.new_with_dependencies((d,))
+        string = string.new_with_python_value((*string._python_value, *d.string()._python_value))
+        string = string.new_with_dependencies((d,))
 
     return EvalResult(result.Ok(string), namespace, tool_calls_chain, dependencies)
 
@@ -340,7 +340,7 @@ def _eval_constant(
             return EvalResult(
                 result.Error(
                     CaMeLException(
-                        NotImplementedError(f"unsupported constant type {type(node.value).__type__}"),
+                        NotImplementedError(f"unsupported constant type {type(node.value).__name__}"),
                         (node,),
                         (),
                     )
@@ -709,9 +709,9 @@ def _assign_tuple_list(
             tool_calls_chain,
             dependencies,
         )
-    for name, v in zip(names.elts, data_to_assign):
+    for name, element in zip(names.elts, data_to_assign):
         assign_res, namespace, tool_calls_chain, dependencies = _assign(
-            v, name, namespace, tool_calls_chain, dependencies, eval_args
+            element.new_with_dependencies((v,)), name, namespace, tool_calls_chain, dependencies, eval_args
         )
         if isinstance(assign_res, result.Error):
             return EvalResult(assign_res, namespace, tool_calls_chain, dependencies)
@@ -1081,7 +1081,7 @@ def _eval_comprehensions(
     for element in iterable.iterate_python():
         inner_namespace = dataclasses.replace(namespace)
         assign_res, inner_namespace, tool_calls_chain, dependencies = _assign(
-            element,
+            element.new_with_dependencies((iterable,)),
             current_comprehension.target,
             inner_namespace,
             tool_calls_chain,
@@ -1797,7 +1797,7 @@ def _eval_for(
     dependencies = [*dependencies, iterable]
     for elt in iterable.iterate_python():
         assign_res, namespace, tool_calls_chain, dependencies = _assign(
-            elt,
+            elt.new_with_dependencies((iterable,)),
             node.target,
             namespace,
             tool_calls_chain,
@@ -1896,7 +1896,7 @@ def _eval_args(
                     tool_calls_chain,
                     dependencies,
                 )
-            evaled_args.extend(evaled_arg.iterate_python())
+            evaled_args.extend(element.new_with_dependencies((evaled_arg,)) for element in evaled_arg.iterate_python())
 
     return EvalResult(
         result.Ok(value.CaMeLTuple(evaled_args, Capabilities.default(), ())), namespace, tool_calls_chain, dependencies
@@ -1967,7 +1967,7 @@ def _eval_keywords(
                         tool_calls_chain,
                         dependencies,
                     )
-                evaled_kwargs[arg] = val
+                evaled_kwargs[arg] = val.new_with_dependencies((kwarg_value,))
         else:
             return EvalResult(
                 result.Error(

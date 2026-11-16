@@ -82,8 +82,33 @@ _value_specifier_str = value.CaMeLStr(
         value._CaMeLChar("f", Capabilities.default(), ()),
     ],
     Capabilities.camel(),
+    (value.CaMeLStr.from_raw(".1f", Capabilities.default(), ()),),
+)
+_bound_tuple_list = value.CaMeLList(
+    [
+        value.CaMeLTuple(
+            tuple(
+                element.new_with_dependencies((row.new_with_dependencies((_tuple_list,)),))
+                for element in row._python_value
+            ),
+            Capabilities.default(),
+            (),
+        )
+        for row in _tuple_list._python_value
+    ],
+    Capabilities.camel(),
+    (_tuple_list,),
+)
+_repeated_list = value.CaMeLList([_a_1, _a_1, _a_2], Capabilities.default(), ())
+_nested_list = value.CaMeLList(
+    [
+        value.CaMeLList([value.CaMeLInt(n, Capabilities.default(), ()) for n in row], Capabilities.default(), ())
+        for row in ((1, 2, 3), (4, 5, 6))
+    ],
+    Capabilities.default(),
     (),
 )
+_nested_rows = tuple(row.new_with_dependencies((_nested_list,)) for row in _nested_list._python_value)
 
 
 class TestLiterals:
@@ -108,7 +133,10 @@ class TestLiterals:
                     value._CaMeLChar("0", Capabilities.camel(), (_a_1, _value_specifier_str)),
                 ],
                 Capabilities.camel(),
-                (),
+                (
+                    value.CaMeLStr.from_raw("a ", Capabilities.default(), ()),
+                    value.CaMeLStr.from_raw("1.0", Capabilities.camel(), (_a_1, _value_specifier_str)),
+                ),
             ),
             namespace=ns.Namespace(),
             expected_namespace=None,
@@ -123,7 +151,10 @@ class TestLiterals:
                     value._CaMeLChar("1", Capabilities.camel(), (_a_1,)),
                 ],
                 Capabilities.camel(),
-                (),
+                (
+                    value.CaMeLStr.from_raw("a ", Capabilities.default(), ()),
+                    value.CaMeLStr.from_raw("1", Capabilities.camel(), (_a_1,)),
+                ),
             ),
             namespace=ns.Namespace({"b": _a_1}),
             expected_namespace=None,
@@ -137,7 +168,10 @@ class TestLiterals:
                     value._CaMeLChar("a", Capabilities.camel(), (_a_string,)),
                 ],
                 Capabilities.camel(),
-                (),
+                (
+                    value.CaMeLStr.from_raw("a", Capabilities.default(), ()),
+                    value.CaMeLStr.from_raw("a", Capabilities.camel(), (_a_string,)),
+                ),
             ),
             namespace=ns.Namespace({"b": _a_string}),
             expected_namespace=None,
@@ -229,17 +263,17 @@ class TestComprehensions:
                     value.CaMeLInt(
                         0,
                         Capabilities.default(),
-                        (value.CaMeLInt(0, Capabilities.default(), ()),),
+                        (_a_0.new_with_dependencies((_a_list,)), _a_list),
                     ),
                     value.CaMeLInt(
                         -1,
                         Capabilities.default(),
-                        (value.CaMeLInt(1, Capabilities.default(), ()),),
+                        (_a_1.new_with_dependencies((_a_list,)), _a_list),
                     ),
                     value.CaMeLInt(
                         -2,
                         Capabilities.default(),
-                        (value.CaMeLInt(2, Capabilities.default(), ()),),
+                        (_a_2.new_with_dependencies((_a_list,)), _a_list),
                     ),
                 ],
                 Capabilities.camel(),
@@ -251,7 +285,7 @@ class TestComprehensions:
         dict(
             testcase_name="list comprehension tuple assignment",
             code="[(x, y) for x, y in [(1, 'a'), (2, 'b'), (3, 'c')]]",
-            expected=_tuple_list.new_with_metadata(Capabilities.camel()).new_with_dependencies((_tuple_list,)),
+            expected=_bound_tuple_list,
             namespace=ns.Namespace.with_builtins(),
             expected_namespace=None,
         ),
@@ -259,9 +293,9 @@ class TestComprehensions:
             testcase_name="set comprehension",
             code="{x for x in [1, 1, 2]}",
             expected=value.CaMeLSet(
-                {_a_1, _a_2},
+                {_a_1.new_with_dependencies((_repeated_list,)), _a_2.new_with_dependencies((_repeated_list,))},
                 Capabilities.camel(),
-                (value.CaMeLList([_a_1, _a_1, _a_2], Capabilities.default(), ()),),
+                (_repeated_list,),
             ),
             namespace=ns.Namespace(),
             expected_namespace=None,
@@ -270,17 +304,7 @@ class TestComprehensions:
             testcase_name="dict comprehension",
             code="{x: y for x, y in [(1, 'a'), (2, 'b'), (3, 'c')]}",
             expected=value.CaMeLDict(
-                {
-                    value.CaMeLInt(1, Capabilities.default(), ()): value.CaMeLStr.from_raw(
-                        "a", Capabilities.default(), ()
-                    ),
-                    value.CaMeLInt(2, Capabilities.default(), ()): value.CaMeLStr.from_raw(
-                        "b", Capabilities.default(), ()
-                    ),
-                    value.CaMeLInt(3, Capabilities.default(), ()): value.CaMeLStr.from_raw(
-                        "c", Capabilities.default(), ()
-                    ),
-                },
+                {row._python_value[0]: row._python_value[1] for row in _bound_tuple_list._python_value},
                 Capabilities.camel(),
                 (_tuple_list,),
             ),
@@ -292,11 +316,11 @@ class TestComprehensions:
             code="[x for x in [0, 1, 2] if x != 0]",
             expected=value.CaMeLList(
                 [
-                    value.CaMeLInt(1, Capabilities.default(), ()),
-                    value.CaMeLInt(2, Capabilities.default(), ()),
+                    _a_1.new_with_dependencies((_a_list,)),
+                    _a_2.new_with_dependencies((_a_list,)),
                 ],
                 Capabilities.camel(),
-                (_a_list,),  # TODO: this should actually have a dependency on the x != 0 expression
+                (_a_list,),  # NORMAL mode does not track filter control dependencies.
             ),
             namespace=ns.Namespace(),
             expected_namespace=None,
@@ -306,73 +330,23 @@ class TestComprehensions:
             code="[(y := x) for x in [0, 1, 2]]",
             expected=value.CaMeLList(
                 [
-                    value.CaMeLInt(0, Capabilities.default(), ()),
-                    value.CaMeLInt(1, Capabilities.default(), ()),
-                    value.CaMeLInt(2, Capabilities.default(), ()),
+                    _a_0.new_with_dependencies((_a_list,)),
+                    _a_1.new_with_dependencies((_a_list,)),
+                    _a_2.new_with_dependencies((_a_list,)),
                 ],
                 Capabilities.camel(),
                 (_a_list,),
             ),
             namespace=ns.Namespace({"y": value.CaMeLInt(2, Capabilities.default(), ())}),
-            expected_namespace=None,
+            expected_namespace=ns.Namespace({"y": _a_2.new_with_dependencies((_a_list,))}),
         ),
         dict(
             testcase_name="nested list comprehension",
             code="[x for y in [[1, 2, 3], [4, 5, 6]] for x in y]",
             expected=value.CaMeLList(
-                [
-                    value.CaMeLInt(1, Capabilities.default(), ()),
-                    value.CaMeLInt(2, Capabilities.default(), ()),
-                    value.CaMeLInt(3, Capabilities.default(), ()),
-                    value.CaMeLInt(4, Capabilities.default(), ()),
-                    value.CaMeLInt(5, Capabilities.default(), ()),
-                    value.CaMeLInt(6, Capabilities.default(), ()),
-                ],
+                [element.new_with_dependencies((row,)) for row in _nested_rows for element in row._python_value],
                 Capabilities.camel(),
-                (
-                    value.CaMeLList(
-                        [
-                            value.CaMeLInt(1, Capabilities.default(), ()),
-                            value.CaMeLInt(2, Capabilities.default(), ()),
-                            value.CaMeLInt(3, Capabilities.default(), ()),
-                        ],
-                        Capabilities.default(),
-                        (),
-                    ),
-                    value.CaMeLList(
-                        [
-                            value.CaMeLInt(4, Capabilities.default(), ()),
-                            value.CaMeLInt(5, Capabilities.default(), ()),
-                            value.CaMeLInt(6, Capabilities.default(), ()),
-                        ],
-                        Capabilities.default(),
-                        (),
-                    ),
-                    value.CaMeLList(
-                        [
-                            value.CaMeLList(
-                                [
-                                    value.CaMeLInt(1, Capabilities.default(), ()),
-                                    value.CaMeLInt(2, Capabilities.default(), ()),
-                                    value.CaMeLInt(3, Capabilities.default(), ()),
-                                ],
-                                Capabilities.default(),
-                                (),
-                            ),
-                            value.CaMeLList(
-                                [
-                                    value.CaMeLInt(4, Capabilities.default(), ()),
-                                    value.CaMeLInt(5, Capabilities.default(), ()),
-                                    value.CaMeLInt(6, Capabilities.default(), ()),
-                                ],
-                                Capabilities.default(),
-                                (),
-                            ),
-                        ],
-                        Capabilities.default(),
-                        (),
-                    ),
-                ),
+                (*_nested_rows, _nested_list),
             ),
             namespace=ns.Namespace(),
             expected_namespace=None,

@@ -19,11 +19,17 @@ def get_all_readers(
     # Catch circular dependencies that might come up
     if id(value) in visited_objects:
         return value.metadata.readers_set, visited_objects
-    value_readers = value.metadata.readers_set
-    for dependency in value.get_dependencies()[0]:
-        new_value_readers, visited_objects = get_all_readers(dependency, visited_objects | {id(value)})
-        value_readers &= new_value_readers
-    return value_readers, visited_objects | {id(value)}
+    value_readers: readers.Readers = readers.Public()
+    visited = set(visited_objects)
+    pending: list[HasDependenciesAndMetadata] = [value]
+    while pending:
+        current = pending.pop()
+        if id(current) in visited:
+            continue
+        pending.extend(current.get_dependencies(frozenset(visited))[0])
+        visited.add(id(current))
+        value_readers &= current.metadata.readers_set
+    return value_readers, frozenset(visited)
 
 
 def is_public(value: HasDependenciesAndMetadata):
@@ -44,12 +50,17 @@ def get_all_sources(
     # Catch circular dependencies that might come up
     if id(value) in visited_objects:
         return frozenset(), visited_objects
-    value_sources: frozenset[sources.Source]
-    value_sources = value.metadata.sources_set
-    for dependency in value.get_dependencies()[0]:
-        new_value_sources, visited_objects = get_all_sources(dependency, visited_objects | {id(value)})
-        value_sources |= new_value_sources
-    return value_sources, visited_objects
+    value_sources: frozenset[sources.Source] = frozenset()
+    visited = set(visited_objects)
+    pending: list[HasDependenciesAndMetadata] = [value]
+    while pending:
+        current = pending.pop()
+        if id(current) in visited:
+            continue
+        pending.extend(current.get_dependencies(frozenset(visited))[0])
+        visited.add(id(current))
+        value_sources |= current.metadata.sources_set
+    return value_sources, frozenset(visited)
 
 
 _TRUSTED_SET = {

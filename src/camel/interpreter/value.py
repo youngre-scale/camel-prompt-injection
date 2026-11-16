@@ -262,13 +262,11 @@ class CaMeLIterable(Generic[_IT, _V], CaMeLValue[_IT]):
     def get_dependencies(
         self, visited_objects: frozenset[int] = frozenset()
     ) -> tuple[tuple["CaMeLValue", ...], frozenset[int]]:
-        dependencies = self._dependencies
         if id(self) in visited_objects:
-            return dependencies, visited_objects
-        for el in self._python_value:
-            (new_dependencies, visited_objects) = el.get_dependencies(visited_objects | {id(self)})
-            dependencies += new_dependencies
-        return dependencies, visited_objects | {id(self)}
+            return (), visited_objects
+        # Keep the elements themselves: their labels may not be present on any
+        # further dependency. The capability walk handles transitive edges.
+        return (*self._dependencies, *self._python_value), visited_objects | {id(self)}
 
     def iterate(self) -> "CaMeLIterator[_V]":
         return CaMeLIterator(iter(self._python_value), Capabilities.camel(), (self,))
@@ -345,16 +343,10 @@ class CaMeLMapping(Generic[_MT, _KV, _VV], CaMeLValue[_MT]):
     def get_dependencies(
         self, visited_objects: frozenset[int] = frozenset()
     ) -> tuple[tuple["CaMeLValue", ...], frozenset[int]]:
-        dependencies = self._dependencies
         if id(self) in visited_objects:
-            return dependencies, visited_objects
-        visited_objects |= {id(self)}
-        for k, v in self._python_value.items():
-            k_dependencies, k_visited_objects = k.get_dependencies(visited_objects)
-            v_dependencies, v_visited_objects = v.get_dependencies(k_visited_objects)
-            dependencies += k_dependencies + v_dependencies
-            visited_objects = v_visited_objects
-        return dependencies, visited_objects
+            return (), visited_objects
+        contents = tuple(element for pair in self._python_value.items() for element in pair)
+        return (*self._dependencies, *contents), visited_objects | {id(self)}
 
     def get(self, key: _KV) -> _VV:
         dict_key = next((el for el in self.iterate_python() if el.eq(key)), None)
@@ -1150,7 +1142,10 @@ class CaMeLClass(Generic[_T], CaMeLCallable[_T], HasAttrs):
     def call(
         self, args: CaMeLTuple, kwargs: CaMeLDict[CaMeLStr, CaMeLValue], namespace: "ns.Namespace"
     ) -> tuple["CaMeLClassInstance[_T]", dict[str, Any]]:
-        return self.init(namespace, *args.raw, **kwargs.raw), self._make_args_by_keyword(args, kwargs)
+        # Constructors receive raw Python arguments, while the resulting value
+        # retains the wrapped arguments and their capability labels.
+        instance = self.init(namespace, *args.raw, **kwargs.raw).new_with_dependencies((args, kwargs))
+        return instance, self._make_args_by_keyword(args, kwargs)
 
     def make_args_by_keyword_preserve_values(
         self, args: "CaMeLTuple", kwargs: "CaMeLDict[CaMeLStr, CaMeLValue]"
@@ -1208,15 +1203,16 @@ class CaMeLClassInstance(Generic[_T], HasSetField[_T]):
     def get_dependencies(
         self, visited_objects: frozenset[int] = frozenset()
     ) -> tuple[tuple["CaMeLValue", ...], frozenset[int]]:
-        dependencies = self._dependencies
         if id(self) in visited_objects:
-            return dependencies, visited_objects
-        for attr_name in self.attr_names():
-            attr = self.attr(attr_name)
-            if attr is not None and attr_name not in self._class._methods:
-                new_dependencies, visited_objects = attr.get_dependencies(visited_objects | {id(self)})
-                dependencies += new_dependencies
-        return dependencies, visited_objects
+            return (), visited_objects
+        # Raw fields inherit this instance's label on access. Wrapped fields
+        # can carry independent labels (including after field assignment).
+        fields = tuple(
+            attr
+            for name in self.attr_names()
+            if name not in self._class._methods and isinstance(attr := getattr(self._python_value, name), CaMeLValue)
+        )
+        return (*self._dependencies, *fields), visited_objects | {id(self)}
 
     def _cmp(self, y: Self) -> "CaMeLInt":
         if self.raw > y.raw:  # type: ignore -- this is hardcoded
@@ -1263,7 +1259,7 @@ class CaMeLClassInstance(Generic[_T], HasSetField[_T]):
             return self._class._methods[name]
         attr = getattr(self._python_value, name)
         if not isinstance(attr, CaMeLValue):
-            return value_from_raw(attr, Capabilities.camel(), self._namespace, ())
+            return value_from_raw(attr, self._metadata, self._namespace, (self,))
         return attr.new_with_dependencies((self,))
 
     def attr_names(self) -> set[str]:
@@ -1299,9 +1295,9 @@ class CaMeLValueAsWrapper(Generic[_T], CaMeLClassInstance[_T]):
             return None
         return value_from_raw(
             getattr(self._python_value, name),
-            Capabilities.camel(),
+            self._metadata,
             self._namespace,
-            self._dependencies,
+            (self,),
         )
 
     def set_field(self, name: str, value: CaMeLValue) -> "CaMeLNone":
