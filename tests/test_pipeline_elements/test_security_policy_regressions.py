@@ -585,6 +585,25 @@ def test_trusted_dict_tool_output_keys_stay_trusted():
     assert env.reservation.title == hotel
 
 
+@pytest.mark.parametrize("tool", ["get_rating_reviews_for_hotels", "get_rating_reviews_for_restaurants"])
+def test_review_tool_output_is_untrusted_and_public(tool):
+    env, runtime, engine = setup("travel")
+    name = env.hotels.hotel_list[0].name if tool.endswith("hotels") else env.restaurants.restaurant_list[0].name
+    for code in (f"{tool}(['{name}'])", f"{tool}(['{name}'])['{name}']"):
+        evaluated, _, _, _ = execute(code, env, runtime, engine, MODES[0])
+        assert isinstance(evaluated, result.Ok)
+        assert not is_trusted(evaluated.value)
+        assert isinstance(get_all_readers(evaluated.value)[0], readers.Public)
+
+
+def test_trusted_dict_tool_output_values_stay_trusted():
+    env, runtime, engine = setup("travel")
+    hotel = env.hotels.hotel_list[0].name
+    evaluated, _, _, _ = execute(f"get_hotels_prices(['{hotel}'])['{hotel}']", env, runtime, engine, MODES[0])
+    assert isinstance(evaluated, result.Ok)
+    assert is_trusted(evaluated.value)
+
+
 def test_string_membership_keeps_both_labels():
     # Tool outputs are relabeled on the string only, as in _get_metadata_for_ad.
     secret = value.CaMeLStr.from_raw("4821", TRUSTED, ()).new_with_metadata(PRIVATE)

@@ -154,9 +154,9 @@ def _get_metadata_for_ad(
                 Capabilities(frozenset({sources.Tool(tool, frozenset({sources.SourceEnum.User}))}), frozenset())
             )
         case dict() if tool in _UNTRUSTED_TRAVEL_TOOLS:
-            # reviews are public
+            # Reviews are public, but third parties write them, so they are not trusted
             return result.new_with_metadata(
-                Capabilities(frozenset({sources.Tool(tool, frozenset({sources.SourceEnum.User}))}), readers.Public())
+                Capabilities(frozenset({sources.Tool(tool, frozenset())}), readers.Public())
             )
         case dict() | str() if tool in _TRUSTED_TRAVEL_TOOLS:
             # All travel tool outputs are trusted except from reviews, and the data is public
