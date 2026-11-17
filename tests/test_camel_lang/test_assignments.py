@@ -57,6 +57,8 @@ _a_class = value.CaMeLClass("AClass", AClass, Capabilities.default(), (), {})
 _a_class_instance = _a_class.init(ns.Namespace(), _a_1)
 _a_list = value.CaMeLList([_a_1], Capabilities.default(), ())
 _a_none = value.CaMeLNone(Capabilities.default(), ())
+_unpack_tuple = value.CaMeLTuple((_a_string, _b_string), Capabilities.default(), ())
+_unpack_list = value.CaMeLList((_a_string, _b_string), Capabilities.default(), ())
 
 
 class TestAssignments:
@@ -126,14 +128,24 @@ class TestAssignments:
             code="a, b = 'a', 'b'",
             expected=value.CaMeLTuple((_a_string, _b_string), Capabilities.default(), ()),
             namespace=ns.Namespace(),
-            expected_namespace=ns.Namespace({"a": _a_string, "b": _b_string}),
+            expected_namespace=ns.Namespace(
+                {
+                    "a": _a_string.new_with_dependencies((_unpack_tuple,)),
+                    "b": _b_string.new_with_dependencies((_unpack_tuple,)),
+                }
+            ),
         ),
         dict(
             testcase_name="list_unpacking_assignment",
             code="[a, b] = ['a', 'b']",
             expected=value.CaMeLList((_a_string, _b_string), Capabilities.default(), ()),
             namespace=ns.Namespace(),
-            expected_namespace=ns.Namespace({"a": _a_string, "b": _b_string}),
+            expected_namespace=ns.Namespace(
+                {
+                    "a": _a_string.new_with_dependencies((_unpack_list,)),
+                    "b": _b_string.new_with_dependencies((_unpack_list,)),
+                }
+            ),
         ),
         dict(
             testcase_name="ann_assignment",

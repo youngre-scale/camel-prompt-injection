@@ -147,9 +147,9 @@ for i in [0, 1, 2]:
             namespace=ns.Namespace(),
             expected_namespace=ns.Namespace(
                 {
-                    # TODO: Unclear why the double dependency. Leaving for now as it does not change anything in practice
-                    "a": _a_2.new_with_dependencies((_a_list, _a_list)),
-                    "i": _a_2.new_with_dependencies((_a_list,)),
+                    # Data dependency plus STRICT binding/assignment control dependencies.
+                    "a": _a_2.new_with_dependencies((_a_list, _a_list, _a_list)),
+                    "i": _a_2.new_with_dependencies((_a_list, _a_list)),
                 }
             ),
             eval_mode=interpreter.MetadataEvalMode.STRICT,
@@ -177,8 +177,8 @@ for i in l:
             expected_namespace=ns.Namespace(
                 {
                     "l": _a_list,
-                    "a": _a_2,
-                    "i": _a_2,
+                    "a": _a_2.new_with_dependencies((_a_list,)),
+                    "i": _a_2.new_with_dependencies((_a_list,)),
                     "b": value.CaMeLInt(5, Capabilities.default(), ()),
                 }
             ),
@@ -196,9 +196,9 @@ for i in l:
             expected_namespace=ns.Namespace(
                 {
                     "l": _a_list,
-                    # TODO: Unclear why the double dependency. Leaving for now as it does not change anything in practice
-                    "a": _a_2.new_with_dependencies((_a_list, _a_list)),
-                    "i": _a_2.new_with_dependencies((_a_list,)),
+                    # Data dependency plus STRICT binding/assignment control dependencies.
+                    "a": _a_2.new_with_dependencies((_a_list, _a_list, _a_list)),
+                    "i": _a_2.new_with_dependencies((_a_list, _a_list)),
                     "b": value.CaMeLInt(5, Capabilities.default(), ()).new_with_dependencies((_a_list,)),
                 }
             ),

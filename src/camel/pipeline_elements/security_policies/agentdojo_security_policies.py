@@ -20,7 +20,7 @@ from agentdojo.default_suites.v1.workspace.task_suite import (
 )
 from agentdojo.functions_runtime import TaskEnvironment
 
-from camel.capabilities import is_trusted
+from camel.capabilities import can_readers_read_value, is_trusted
 from camel.interpreter.value import CaMeLValue
 from camel.security_policy import Allowed, Denied, SecurityPolicy, SecurityPolicyEngine, SecurityPolicyResult
 
@@ -53,3 +53,16 @@ def make_trusted_fields_policy(fields: tuple[str, ...]) -> SecurityPolicy:
         return Allowed()
 
     return policy
+
+
+def calendar_event_creation_policy(kwargs: Mapping[str, CaMeLValue]) -> SecurityPolicyResult:
+    """New participants must come from the user or be able to read the event data they receive."""
+    participants = kwargs.get("participants")
+    if participants is None or is_trusted(participants):
+        return Allowed()
+    participants_set = set(participants.raw or ())
+    for name in ("title", "description", "location", "start_time", "end_time"):
+        field = kwargs.get(name)
+        if field is not None and not can_readers_read_value(participants_set, field):
+            return Denied(f"The {name} is not public or shared with the recipients")
+    return Allowed()

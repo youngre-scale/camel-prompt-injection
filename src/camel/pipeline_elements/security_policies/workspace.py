@@ -23,6 +23,7 @@ from camel.capabilities import can_readers_read_value, get_all_readers, is_trust
 from camel.interpreter.value import CaMeLDict, CaMeLList, CaMeLNone, CaMeLStr, CaMeLValue
 from camel.pipeline_elements.security_policies.agentdojo_security_policies import (
     AgentDojoSecurityPolicyEngine,
+    calendar_event_creation_policy,
 )
 from camel.security_policy import Allowed, Denied, SecurityPolicyResult
 
@@ -126,7 +127,7 @@ class WorkspaceSecurityPolicyEngine(AgentDojoSecurityPolicyEngine[WorkspaceEnvir
         # Rationale:
         # The email_id should come from an email that was requested by the user directly
         email_id = kwargs["email_id"]
-        if is_trusted(email_id):
+        if not is_trusted(email_id):
             return Denied("Email to be deleted does not come directly from user")
         return Allowed()
 
@@ -141,21 +142,7 @@ class WorkspaceSecurityPolicyEngine(AgentDojoSecurityPolicyEngine[WorkspaceEnvir
         # - participants: list[str]
         # Rationale:
         # Title, description, location, start_time, end_time should be readable by the participants or all participants should come from user
-        participants: CaMeLList[CaMeLStr] = kwargs["participants"]  # type: ignore
-        if is_trusted(participants):
-            return Allowed()
-        participants_set = set(participants.raw)
-        if not can_readers_read_value(participants_set, kwargs["title"]):
-            return Denied("The title is not public or shared with the recipients")
-        if not can_readers_read_value(participants_set, kwargs["description"]):
-            return Denied("The description is not public or shared with the recipients")
-        if not can_readers_read_value(participants_set, kwargs["location"]):
-            return Denied("The location is not public or shared with the recipients")
-        if not can_readers_read_value(participants_set, kwargs["end_time"]):
-            return Denied("The end_time is not public or shared with the recipients")
-        if not can_readers_read_value(participants_set, kwargs["start_time"]):
-            return Denied("The start_time is not public or shared with the recipients")
-        return Allowed()
+        return calendar_event_creation_policy(kwargs)
 
     def cancel_calendar_event_policy(self, tool_name: str, kwargs: Mapping[str, CaMeLValue]) -> SecurityPolicyResult:
         # Data:
@@ -189,8 +176,8 @@ class WorkspaceSecurityPolicyEngine(AgentDojoSecurityPolicyEngine[WorkspaceEnvir
                 f"Start time is not readable by the participants of the event: participants={event_participants} time_readers={new_start_time_readers}"
             )
 
-        new_end_time = kwargs["new_end_time"]
-        if isinstance(new_end_time, CaMeLNone):
+        new_end_time = kwargs.get("new_end_time")
+        if new_end_time is None:
             return Allowed()
         new_end_time_readers, _ = get_all_readers(new_end_time)
         if not can_readers_read_value(event_participants, new_end_time):
@@ -210,9 +197,10 @@ class WorkspaceSecurityPolicyEngine(AgentDojoSecurityPolicyEngine[WorkspaceEnvir
         # Rationale: Participants should be specified by the user, or event data must be public.
         # However, we can't fetch whether the event data is public, so the security policy only
         # passes if the participants come from the user.
-        event_id = kwargs["event_id"]
-        if not is_trusted(event_id):
-            return Denied("Event to be deleted does not come directly from user")
+        if not is_trusted(kwargs["event_id"]):
+            return Denied("Event to be updated does not come directly from user")
+        if not is_trusted(kwargs["participants"]):
+            return Denied("Participants do not come directly from the user")
         return Allowed()
 
     def create_file_policy(self, tool_name: str, kwargs: Mapping[str, CaMeLValue]) -> SecurityPolicyResult:

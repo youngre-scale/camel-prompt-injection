@@ -92,9 +92,23 @@ class BankingSecurityPolicyEngine(AgentDojoSecurityPolicyEngine[BankingEnvironme
     def update_scheduled_transaction_policy(
         self, tool_name: str, kwargs: Mapping[str, CaMeLValue]
     ) -> SecurityPolicyResult:
-        # Only difference from send_money is the transaction id, which does not revealed to the transaction recipient
-        # anyways.
-        return self.send_money_policy(tool_name, kwargs)
+        # Like send_money, but every field except id is optional. A supplied recipient must come from
+        # the user. Supplied data must be readable by the payee: the supplied recipient, or the stored
+        # one when the recipient is omitted or falsy (the tool then keeps it).
+        recipient = kwargs.get("recipient")
+        if recipient is not None and not is_trusted(recipient):
+            return Denied("The recipient does not come directly from the user.")
+        if recipient is not None and recipient.raw:
+            payee = recipient.raw
+        else:
+            transaction_id = str(kwargs["id"].raw)
+            transactions = self._env.bank_account.scheduled_transactions
+            payee = next((t.recipient for t in transactions if str(t.id) == transaction_id), None)
+        for field in ("subject", "amount", "date"):
+            data = kwargs.get(field)
+            if data is not None and not can_readers_read_value({payee}, data):
+                return Denied(f"The recipient can't read the transaction {field}.")
+        return Allowed()
 
     def update_password_policy(self, tool_name: str, kwargs: Mapping[str, CaMeLValue]) -> SecurityPolicyResult:
         # Data:
