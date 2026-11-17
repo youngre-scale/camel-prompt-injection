@@ -222,24 +222,24 @@ def test_participant_policy_checks_participants(event_trusted, participants_trus
             [wrapped(EXTERNAL, TRUSTED if participants_trusted else UNTRUSTED)], TRUSTED, ()
         ),
     }
+    allowed = event_trusted and participants_trusted
     verdict = engine.add_calendar_event_participants_policy("add_calendar_event_participants", kwargs)
-    assert isinstance(verdict, Allowed if participants_trusted else Denied)
+    assert isinstance(verdict, Allowed if allowed else Denied)
     code = (
         ("event = search_calendar_events('Project sync')[0]\nadd_calendar_event_participants(event.id_, participants)")
         if not event_trusted
         else "add_calendar_event_participants(event_id, participants)"
     )
     before = env.calendar.events["1"].model_copy(deep=True)
-    if participants_trusted:
+    if allowed:
         evaluated, _, _, _ = execute(code, env, runtime, engine, mode, kwargs)
         assert isinstance(evaluated, result.Ok)
         assert env.calendar.events["1"].participants == [OWNER, GUEST, EXTERNAL]
-    else:
-        assert isinstance(verdict, Denied)
-        assert verdict.reason == "Participants do not come directly from the user"
-        with pytest.raises(SecurityPolicyDeniedError):
-            execute(code, env, runtime, engine, mode, kwargs)
-        assert env.calendar.events["1"] == before
+        return
+    with pytest.raises(SecurityPolicyDeniedError):
+        execute(code, env, runtime, engine, mode, kwargs)
+    assert env.calendar.events["1"] == before
+    if not participants_trusted:
         with pytest.raises(SecurityPolicyDeniedError):
             execute(
                 "event = search_calendar_events('Project sync')[0]\nsend_email(participants, 'Notes', event.description)",
@@ -473,12 +473,14 @@ def test_payment_update_checks_supplied_payload_against_effective_payee(recipien
         assert env.bank_account.scheduled_transactions[0] == before
 
 
-def test_payment_redirect_checks_unchanged_data():
-    env, _, engine = setup("banking")
-    verdict = engine.update_scheduled_transaction_policy(
-        "update_scheduled_transaction", {"id": wrapped(1), "recipient": wrapped(NEW_PAYEE)}
+def test_payment_redirect_by_user_keeps_stored_fields():
+    # AgentDojo banking user_task_15: redirect a schedule to a payee from the prompt, other fields omitted.
+    env, runtime, engine = setup("banking")
+    evaluated, _, _, _ = execute(
+        f"update_scheduled_transaction(id=1, recipient='{NEW_PAYEE}')", env, runtime, engine, MODES[0]
     )
-    assert isinstance(verdict, Denied)
+    assert isinstance(evaluated, result.Ok)
+    assert env.bank_account.scheduled_transactions[0].recipient == NEW_PAYEE
 
 
 @pytest.mark.parametrize("suite_name", ["workspace", "travel"])
@@ -558,3 +560,69 @@ def test_nullable_required_car_rental_end_time():
     )
     assert isinstance(evaluated, result.Ok)
     assert env.reservation.title == "Example Cars"
+
+
+@pytest.mark.parametrize("code", ["get_current_day()", "get_iban()"])
+def test_trusted_string_tool_output_stays_trusted(code):
+    env, runtime, engine = setup("banking" if code == "get_iban()" else "workspace")
+    evaluated, _, _, _ = execute(code, env, runtime, engine, MODES[0])
+    assert isinstance(evaluated, result.Ok)
+    assert is_trusted(evaluated.value)
+
+
+def test_trusted_dict_tool_output_keys_stay_trusted():
+    env, runtime, engine = setup("travel")
+    hotel = env.hotels.hotel_list[0].name
+    evaluated, _, _, _ = execute(
+        f"prices = get_hotels_prices(['{hotel}'])\nfor name in prices:\n"
+        "    reserve_hotel(hotel=name, start_day='2024-06-01', end_day='2024-06-02')",
+        env,
+        runtime,
+        engine,
+        MODES[0],
+    )
+    assert isinstance(evaluated, result.Ok)
+    assert env.reservation.title == hotel
+
+
+def test_string_membership_keeps_both_labels():
+    # Tool outputs are relabeled on the string only, as in _get_metadata_for_ad.
+    secret = value.CaMeLStr.from_raw("4821", TRUSTED, ()).new_with_metadata(PRIVATE)
+    public = value.CaMeLStr.from_raw("code 4821", TRUSTED, ())
+    for check in (secret.contains(value.CaMeLStr.from_raw("9999", TRUSTED, ())), public.contains(secret)):
+        assert get_all_readers(check)[0] == frozenset()
+
+
+@pytest.mark.parametrize("suite_name", ["workspace", "travel"])
+def test_calendar_private_none_location_is_checked(suite_name):
+    env, _, engine = setup(suite_name)
+    kwargs = {
+        "title": wrapped("Meeting"),
+        "start_time": wrapped("2024-06-02 12:00"),
+        "end_time": wrapped("2024-06-02 13:00"),
+        "location": wrapped(None, PRIVATE),
+        "participants": wrapped([EXTERNAL], UNTRUSTED),
+    }
+    assert isinstance(engine.create_calendar_event_policy("create_calendar_event", kwargs), Denied)
+
+
+def test_payment_update_private_none_subject_is_checked():
+    _, _, engine = setup("banking")
+    kwargs = {"id": wrapped(1), "subject": wrapped(None, PRIVATE)}
+    assert isinstance(engine.update_scheduled_transaction_policy("update_scheduled_transaction", kwargs), Denied)
+
+
+def test_payment_update_id_is_left_to_the_tool():
+    env, runtime, engine = setup("banking")
+    evaluated, _, _, _ = execute("update_scheduled_transaction(id='1', amount=120.0)", env, runtime, engine, MODES[0])
+    assert isinstance(evaluated, result.Ok)
+    assert env.bank_account.scheduled_transactions[0].amount == 120.0
+    evaluated, _, _, _ = execute("update_scheduled_transaction(id=99, amount=120.0)", env, runtime, engine, MODES[0])
+    assert isinstance(evaluated, result.Error)
+    assert isinstance(evaluated.error.exception, ValueError)
+
+
+def test_long_tool_string_walk_is_linear():
+    long_string = value.CaMeLStr.from_raw("x" * 200_000, PRIVATE, ())
+    derived = long_string.add(value.CaMeLStr.from_raw("!", TRUSTED, ()))
+    assert get_all_readers(derived)[0] == frozenset()

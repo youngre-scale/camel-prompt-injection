@@ -177,7 +177,7 @@ class WorkspaceSecurityPolicyEngine(AgentDojoSecurityPolicyEngine[WorkspaceEnvir
             )
 
         new_end_time = kwargs.get("new_end_time")
-        if new_end_time is None or isinstance(new_end_time, CaMeLNone):
+        if new_end_time is None:
             return Allowed()
         new_end_time_readers, _ = get_all_readers(new_end_time)
         if not can_readers_read_value(event_participants, new_end_time):
@@ -197,12 +197,9 @@ class WorkspaceSecurityPolicyEngine(AgentDojoSecurityPolicyEngine[WorkspaceEnvir
         # Rationale: Participants should be specified by the user, or event data must be public.
         # However, we can't fetch whether the event data is public, so the security policy only
         # passes if the participants come from the user.
-        participants = kwargs["participants"]
-        if not isinstance(participants, CaMeLList) or not all(
-            isinstance(participant, CaMeLStr) for participant in participants.iterate_python()
-        ):
-            return Denied("Participants must be a list of email addresses")
-        if not is_trusted(participants):
+        if not is_trusted(kwargs["event_id"]):
+            return Denied("Event to be updated does not come directly from user")
+        if not is_trusted(kwargs["participants"]):
             return Denied("Participants do not come directly from the user")
         return Allowed()
 

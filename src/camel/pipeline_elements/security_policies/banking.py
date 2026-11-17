@@ -17,9 +17,8 @@ from collections.abc import Mapping
 from agentdojo.default_suites.v1.banking.task_suite import BankingEnvironment
 
 from camel import security_policy
-from camel.capabilities import Capabilities, can_readers_read_value, get_all_readers, is_trusted, sources
-from camel.interpreter import namespace as ns
-from camel.interpreter.value import CaMeLNone, CaMeLStr, CaMeLValue, value_from_raw
+from camel.capabilities import can_readers_read_value, get_all_readers, is_trusted
+from camel.interpreter.value import CaMeLValue
 from camel.pipeline_elements.security_policies.agentdojo_security_policies import (
     AgentDojoSecurityPolicyEngine,
 )
@@ -93,40 +92,23 @@ class BankingSecurityPolicyEngine(AgentDojoSecurityPolicyEngine[BankingEnvironme
     def update_scheduled_transaction_policy(
         self, tool_name: str, kwargs: Mapping[str, CaMeLValue]
     ) -> SecurityPolicyResult:
-        transaction = next((t for t in self._env.bank_account.scheduled_transactions if t.id == kwargs["id"].raw), None)
-        if transaction is None:
-            return Denied("The scheduled transaction does not exist")
-
+        # Like send_money, but every field except id is optional. A supplied recipient must come from
+        # the user. Supplied data must be readable by the payee: the supplied recipient, or the stored
+        # one when the recipient is omitted or falsy (the tool then keeps it).
         recipient = kwargs.get("recipient")
-        # The tool leaves the payee unchanged for omission, None, or an empty
-        # string. The stored schedule establishes that destination; a supplied
-        # replacement must still satisfy the recipient trust requirement.
-        if recipient is None or isinstance(recipient, CaMeLNone) or not recipient.raw:
-            recipient = CaMeLStr.from_raw(transaction.recipient, Capabilities.default(), ())
-        if not is_trusted(recipient):
+        if recipient is not None and not is_trusted(recipient):
             return Denied("The recipient does not come directly from the user.")
-
-        recipients_set = {recipient.raw}
-        stored_metadata = Capabilities(
-            frozenset({sources.SourceEnum.TrustedToolSource}), frozenset({transaction.sender, transaction.recipient})
-        )
-        effective_kwargs = {"recipient": recipient}
+        if recipient is not None and recipient.raw:
+            payee = recipient.raw
+        else:
+            transaction_id = str(kwargs["id"].raw)
+            transactions = self._env.bank_account.scheduled_transactions
+            payee = next((t.recipient for t in transactions if str(t.id) == transaction_id), None)
         for field in ("subject", "amount", "date"):
-            supplied = kwargs.get(field)
-            # Check supplied payload values even when another argument is
-            # omitted. None carries no replacement value.
-            if supplied is not None and not isinstance(supplied, CaMeLNone):
-                if not can_readers_read_value(recipients_set, supplied):
-                    return Denied(f"The recipients can't read the transaction {field}.")
-            # AgentDojo 0.1.34 updates these fields only for truthy values.
-            # A redirect also exposes unchanged data to the effective payee.
-            if supplied is None or isinstance(supplied, CaMeLNone) or not supplied.raw:
-                effective_kwargs[field] = value_from_raw(
-                    getattr(transaction, field), stored_metadata, ns.Namespace(), ()
-                )
-            else:
-                effective_kwargs[field] = supplied
-        return self.send_money_policy(tool_name, effective_kwargs)
+            data = kwargs.get(field)
+            if data is not None and not can_readers_read_value({payee}, data):
+                return Denied(f"The recipient can't read the transaction {field}.")
+        return Allowed()
 
     def update_password_policy(self, tool_name: str, kwargs: Mapping[str, CaMeLValue]) -> SecurityPolicyResult:
         # Data:

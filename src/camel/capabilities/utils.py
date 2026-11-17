@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import Protocol
 
 from camel.capabilities import Capabilities, readers, sources
@@ -12,24 +13,29 @@ class HasDependenciesAndMetadata(Protocol):
     def metadata(self) -> Capabilities: ...
 
 
-def get_all_readers(
-    value: HasDependenciesAndMetadata,
-    visited_objects: frozenset[int] = frozenset(),
-) -> tuple[readers.Readers, frozenset[int]]:
-    # Catch circular dependencies that might come up
-    if id(value) in visited_objects:
-        return value.metadata.readers_set, visited_objects
-    value_readers: readers.Readers = readers.Public()
+def _walk(
+    value: HasDependenciesAndMetadata, visited_objects: frozenset[int] = frozenset()
+) -> Iterator[HasDependenciesAndMetadata]:
+    """Yields `value` and everything it transitively depends on, once each (cycles are allowed)."""
     visited = set(visited_objects)
-    pending: list[HasDependenciesAndMetadata] = [value]
+    pending = [value]
     while pending:
         current = pending.pop()
         if id(current) in visited:
             continue
-        pending.extend(current.get_dependencies(frozenset(visited))[0])
         visited.add(id(current))
+        yield current
+        pending.extend(current.get_dependencies()[0])
+
+
+def get_all_readers(
+    value: HasDependenciesAndMetadata,
+    visited_objects: frozenset[int] = frozenset(),
+) -> tuple[readers.Readers, frozenset[int]]:
+    value_readers: readers.Readers = readers.Public()
+    for current in _walk(value, visited_objects):
         value_readers &= current.metadata.readers_set
-    return value_readers, frozenset(visited)
+    return value_readers, visited_objects
 
 
 def is_public(value: HasDependenciesAndMetadata):
@@ -47,20 +53,10 @@ def get_all_sources(
     value: HasDependenciesAndMetadata,
     visited_objects: frozenset[int] = frozenset(),
 ) -> tuple[frozenset[sources.Source], frozenset[int]]:
-    # Catch circular dependencies that might come up
-    if id(value) in visited_objects:
-        return frozenset(), visited_objects
     value_sources: frozenset[sources.Source] = frozenset()
-    visited = set(visited_objects)
-    pending: list[HasDependenciesAndMetadata] = [value]
-    while pending:
-        current = pending.pop()
-        if id(current) in visited:
-            continue
-        pending.extend(current.get_dependencies(frozenset(visited))[0])
-        visited.add(id(current))
+    for current in _walk(value, visited_objects):
         value_sources |= current.metadata.sources_set
-    return value_sources, frozenset(visited)
+    return value_sources, visited_objects
 
 
 _TRUSTED_SET = {

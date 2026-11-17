@@ -307,11 +307,8 @@ def _eval_joined_str(
         case result.Ok(v):
             evaled_data: value.CaMeLList = v
 
-    string = value.CaMeLStr.from_raw("", Capabilities.camel(), ())
-
-    for d in evaled_data.iterate_python():
-        string = string.new_with_python_value((*string._python_value, *d.string()._python_value))
-        string = string.new_with_dependencies((d,))
+    chars = (c for d in evaled_data.iterate_python() for c in d.string()._python_value)
+    string = value.CaMeLStr(tuple(chars), Capabilities.camel(), (evaled_data,))
 
     return EvalResult(result.Ok(string), namespace, tool_calls_chain, dependencies)
 

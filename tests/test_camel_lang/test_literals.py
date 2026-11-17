@@ -82,7 +82,7 @@ _value_specifier_str = value.CaMeLStr(
         value._CaMeLChar("f", Capabilities.default(), ()),
     ],
     Capabilities.camel(),
-    (value.CaMeLStr.from_raw(".1f", Capabilities.default(), ()),),
+    (value.CaMeLList([value.CaMeLStr.from_raw(".1f", Capabilities.default(), ())], Capabilities.camel(), ()),),
 )
 _bound_tuple_list = value.CaMeLList(
     [
@@ -134,8 +134,14 @@ class TestLiterals:
                 ],
                 Capabilities.camel(),
                 (
-                    value.CaMeLStr.from_raw("a ", Capabilities.default(), ()),
-                    value.CaMeLStr.from_raw("1.0", Capabilities.camel(), (_a_1, _value_specifier_str)),
+                    value.CaMeLList(
+                        [
+                            value.CaMeLStr.from_raw("a ", Capabilities.default(), ()),
+                            value.CaMeLStr.from_raw("1.0", Capabilities.camel(), (_a_1, _value_specifier_str)),
+                        ],
+                        Capabilities.camel(),
+                        (),
+                    ),
                 ),
             ),
             namespace=ns.Namespace(),
@@ -152,8 +158,14 @@ class TestLiterals:
                 ],
                 Capabilities.camel(),
                 (
-                    value.CaMeLStr.from_raw("a ", Capabilities.default(), ()),
-                    value.CaMeLStr.from_raw("1", Capabilities.camel(), (_a_1,)),
+                    value.CaMeLList(
+                        [
+                            value.CaMeLStr.from_raw("a ", Capabilities.default(), ()),
+                            value.CaMeLStr.from_raw("1", Capabilities.camel(), (_a_1,)),
+                        ],
+                        Capabilities.camel(),
+                        (),
+                    ),
                 ),
             ),
             namespace=ns.Namespace({"b": _a_1}),
@@ -169,8 +181,14 @@ class TestLiterals:
                 ],
                 Capabilities.camel(),
                 (
-                    value.CaMeLStr.from_raw("a", Capabilities.default(), ()),
-                    value.CaMeLStr.from_raw("a", Capabilities.camel(), (_a_string,)),
+                    value.CaMeLList(
+                        [
+                            value.CaMeLStr.from_raw("a", Capabilities.default(), ()),
+                            value.CaMeLStr.from_raw("a", Capabilities.camel(), (_a_string,)),
+                        ],
+                        Capabilities.camel(),
+                        (),
+                    ),
                 ),
             ),
             namespace=ns.Namespace({"b": _a_string}),

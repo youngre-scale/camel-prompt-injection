@@ -262,8 +262,6 @@ class CaMeLIterable(Generic[_IT, _V], CaMeLValue[_IT]):
     def get_dependencies(
         self, visited_objects: frozenset[int] = frozenset()
     ) -> tuple[tuple["CaMeLValue", ...], frozenset[int]]:
-        if id(self) in visited_objects:
-            return (), visited_objects
         # Keep the elements themselves: their labels may not be present on any
         # further dependency. The capability walk handles transitive edges.
         return (*self._dependencies, *self._python_value), visited_objects | {id(self)}
@@ -343,8 +341,6 @@ class CaMeLMapping(Generic[_MT, _KV, _VV], CaMeLValue[_MT]):
     def get_dependencies(
         self, visited_objects: frozenset[int] = frozenset()
     ) -> tuple[tuple["CaMeLValue", ...], frozenset[int]]:
-        if id(self) in visited_objects:
-            return (), visited_objects
         contents = tuple(element for pair in self._python_value.items() for element in pair)
         return (*self._dependencies, *contents), visited_objects | {id(self)}
 
@@ -803,14 +799,17 @@ class CaMeLStr(
         self._metadata = metadata
         self._dependencies = dependencies
 
+    def get_dependencies(
+        self, visited_objects: frozenset[int] = frozenset()
+    ) -> tuple[tuple["CaMeLValue", ...], frozenset[int]]:
+        # Characters carry the string's own provenance, so they are not separate dependencies.
+        return self._dependencies, visited_objects | {id(self)}
+
     def contains(self, other: CaMeLValue) -> "CaMeLBool":
         if not isinstance(other, CaMeLStr | _CaMeLChar):
             raise TypeError(f"in <string>' requires string as left operand, not {other.raw_type}")
-        if other.raw in self.raw:
-            return CaMeLTrue(Capabilities.camel(), (self, *other.get_dependencies()[0]))
-        # Add metadata from elements as well as False reveal something about all of them
-        # (i.e., that none of them is `other`).
-        return CaMeLFalse(Capabilities.camel(), (*self.get_dependencies()[0], other))
+        result = CaMeLTrue if other.raw in self.raw else CaMeLFalse
+        return result(Capabilities.camel(), (self, other))
 
     @classmethod
     def from_raw(cls, string: str, metadata: Capabilities, dependencies: tuple[CaMeLValue, ...]) -> Self:
@@ -1203,8 +1202,6 @@ class CaMeLClassInstance(Generic[_T], HasSetField[_T]):
     def get_dependencies(
         self, visited_objects: frozenset[int] = frozenset()
     ) -> tuple[tuple["CaMeLValue", ...], frozenset[int]]:
-        if id(self) in visited_objects:
-            return (), visited_objects
         # Raw fields inherit this instance's label on access. Wrapped fields
         # can carry independent labels (including after field assignment).
         fields = tuple(
@@ -1363,7 +1360,9 @@ def value_from_raw(
         case dict():
             return CaMeLDict(
                 {
-                    value_from_raw(k, Capabilities.camel(), namespace, ()): value_from_raw(v, metadata, namespace, ())
+                    value_from_raw(k, Capabilities.camel(), namespace, ()): value_from_raw(
+                        v, Capabilities.camel(), namespace, ()
+                    )
                     for k, v in raw_value.items()
                 },
                 metadata,
